@@ -57,3 +57,13 @@ describe("uw catalog", () => {
     expect(toRows({ data: null })).toEqual([]);
   });
 });
+
+describe("toRows nested lists", () => {
+  it("unwraps a single nested list of rows", () => {
+    expect(toRows({ data: { dividends: [{ amount: 1 }, { amount: 2 }], ticker: "AAPL" } })).toEqual([{ amount: 1 }, { amount: 2 }]);
+  });
+  it("keeps objects with several lists intact", () => {
+    const body = { data: { a: [{ x: 1 }], b: [{ y: 2 }] } };
+    expect(toRows(body)).toEqual([body.data]);
+  });
+});

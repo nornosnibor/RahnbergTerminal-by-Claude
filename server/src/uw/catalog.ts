@@ -103,7 +103,12 @@ export function toRows(json: unknown): Record<string, unknown>[] {
           : { value: item }
     );
   }
-  if (body && typeof body === "object") return [body as Record<string, unknown>];
+  if (body && typeof body === "object") {
+    // `{data: {dividends: [...], ticker}}` → the rows of its single nested list.
+    const lists = Object.values(body).filter((v) => Array.isArray(v) && v.length > 0 && v.every((x) => x && typeof x === "object" && !Array.isArray(x)));
+    if (lists.length === 1) return lists[0] as Record<string, unknown>[];
+    return [body as Record<string, unknown>];
+  }
   if (body === null || body === undefined) return [];
   return [{ value: body }];
 }

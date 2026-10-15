@@ -1,15 +1,23 @@
 {
-  "name": "openterminal",
+  "name": "rahnberg-terminal",
   "private": true,
-  "workspaces": ["server", "web"],
+  "workspaces": [
+    "server",
+    "web"
+  ],
   "scripts": {
     "dev": "concurrently -n api,web -c yellow,cyan \"npm run dev -w server\" \"npm run dev -w web\"",
     "build": "npm run build -w server && npm run build -w web",
     "start": "concurrently -n api,web \"npm run start -w server\" \"npm run start -w web\"",
-    "test": "npm run test -w server",
-    "lint": "npm run lint -w web"
+    "test": "npm run test -w server && npm run test -w web",
+    "lint": "npm run lint -w web",
+    "dev:mock": "concurrently -n mock,api,web -c magenta,yellow,cyan \"npm run mock:uw -w server\" \"cross-env UW_BASE_URL=http://localhost:4100 UW_API_KEY=00000000-0000-4000-8000-000000000000 npm run dev -w server\" \"npm run dev -w web\"",
+    "gen:uw": "node scripts/gen-uw-catalog.mjs",
+    "test:e2e": "node scripts/e2e-whales.mjs"
   },
   "devDependencies": {
-    "concurrently": "^9.1.2"
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "playwright": "^1.64.1"
   }
 }

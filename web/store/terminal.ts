@@ -28,7 +28,11 @@ export type WidgetInstance = {
 
 export type LayoutItem = { i: string; x: number; y: number; w: number; h: number };
 
+export type Page = "terminal" | "whales";
+
 type TerminalState = {
+  page: Page;
+  setPage: (p: Page) => void;
   activeSymbol: string;
   widgets: WidgetInstance[];
   layout: LayoutItem[];
@@ -82,6 +86,8 @@ const SIZE_BY_TYPE: Record<WidgetType, { w: number; h: number }> = {
 export const useTerminal = create<TerminalState>()(
   persist(
     (set) => ({
+      page: "terminal",
+      setPage: (page) => set({ page }),
       activeSymbol: "AAPL",
       widgets: DEFAULT_WIDGETS,
       layout: DEFAULT_LAYOUT,

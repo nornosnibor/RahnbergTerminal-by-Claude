@@ -1,23 +1,71 @@
 <div align="center">
 
-# OpenTerminal
+# RahnbergTerminal — by Claude
 
-**A Bloomberg Terminal‑style workspace for the rest of us — built entirely on free, public market data.**
+**A Bloomberg Terminal‑style workspace, now wired into the entire Unusual Whales API.**
 
-Dark. Dense. Keyboard‑driven. Zero paid API keys, zero subscriptions.
+Dark. Dense. Keyboard‑driven. Free public market data for the widget terminal, plus a dedicated
+🐋 **WHALES** page covering all 230 Unusual Whales endpoints: GEX, options flow, scanners, dark pool,
+volatility, fundamentals and smart money.
 
-[![Stack](https://img.shields.io/badge/stack-Next.js%20%2B%20Express%20%2B%20TypeScript-orange)](#tech-stack)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](#license)
-[![No API Key Required](https://img.shields.io/badge/data-no%20API%20key%20required-brightgreen)](#data-sources)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-ff69b4.svg)](#contributing)
+<img src="docs/screenshots/whales-cockpit.png" alt="WHALES scalp cockpit — GEX ladder, net premium flow, flow alerts" width="100%" />
+
+<sub>Forked from <a href="https://github.com/nornosnibor/RahnbergTerminal">RahnbergTerminal</a> (itself based on OpenTerminal). Screenshots use the bundled mock data.</sub>
+
+</div>
 
 <br/>
 
-<img src="docs/screenshots/dashboard.png" alt="OpenTerminal dashboard — live chart, quote panel, watchlist, news and macro indexes" width="100%" />
+## 🐋 The WHALES page (Unusual Whales)
 
-<sub>⭐ If this is useful to you, consider starring the repo — it genuinely helps other people find it.</sub>
+Switch with the **🐋 WHALES** tab in the top bar or **⌥W**. Sections are on **⌥1–⌥9**. Every per-ticker panel follows
+the active symbol (type it in the header or use ⌘K). Clicking a ticker in any table loads it everywhere.
 
-</div>
+| Section | What it's for |
+|---|---|
+| **Scalp Cockpit** | One-screen view for intraday trading: price/range/volume, IV rank, NOPE, max pain, **GEX call wall / put wall / gamma flip / magnet** with % distance from spot, a **strike‑ladder GEX chart** (Γ/Δ/vanna/charm · OI / volume / directionalized · net or call/put), cumulative **net premium flow**, live **flow alerts**, **most active contracts**, **dark pool prints**, flow by expiry and dark pool price levels |
+| **GEX / Greeks** | Spot GEX by strike, exposure by strike for a single expiry, exposure by expiry, exposure per 1% move intraday, net gamma history, directional delta/vega flow, OI per strike, max pain / expiry breakdown |
+| **Options Flow** | Market‑wide flow alerts with 12 one‑click presets (Unusual, Whale prints ≥ $1M, 0DTE scalps, sweeps, bullish calls, bearish puts, size > OI, earnings plays, LEAPS, floor, small caps…), filter bar, call/put premium split and net premium by ticker. Also: unusual options activity, **hottest chains** (7 presets), multi‑leg trades, OI change leaders |
+| **Market Pulse** | Market tide, sector tide, ETF tide, top net premium impact, sector ETFs, movers, economic & FDA calendars, pre/after‑market earnings, headlines, total options volume, net flow by expiry, insider buy/sell totals |
+| **Scanners** | UW stock screener with 13 presets (momentum, IV rank, gamma flips, **value: dividend large caps / near 52‑week low / insider buying**, 2σ moves…), all 112 filters, a **query‑language box**, **saved scans**, a **watchlist multi‑scan** (run GEX levels / IV rank / max pain / NOPE / short interest… across up to 60 tickers), short‑squeeze screener, analyst ratings, options pulse |
+| **Value / Fundamentals** | P/E, PEG, EPS, yield, analyst target upside, 52‑week range position, short % float; revenue & net income chart; income / balance / cash‑flow statements (with computed free cash flow); earnings surprises & estimates; analyst ratings; institutional ownership; insiders; dividends; seasonality |
+| **Volatility** | IV vs RV with a rich/cheap read, term structure, IV rank history, risk‑reversal skew, variance risk premium, anomaly/character/sentiment scores, market‑wide top anomalies, VIX term structure |
+| **Dark Pool & Tape** | Market dark pool and lit prints (min size, sort by $/size/time), dark vs lit volume by price, ticker prints, short volume by exchange, FTDs |
+| **Smart Money** | Congress trades (recent, unusual, late, per ticker), insider transactions, 13F filings with institution lookup (holdings, sectors, activity), politician portfolios |
+| **API Explorer** | **All 230 endpoints**, searchable and grouped, with a parameter form generated from the official spec. Results appear as a table, as sub‑tables, or as raw JSON, and you can copy a curl command. Every panel's **⇱** opens its exact request here. Write endpoints (watchlists, alerts) ask for confirmation before sending |
+| **Settings** | Save / verify / remove your API key, auto‑refresh interval, usage and the rate‑limit headers UW reports |
+
+**Every table** sorts by column and has per‑column filters (`>1m`, `<0.5`, `10..20`, `=call`, `!put`, `spy|qqq`), a column picker and CSV export.
+
+### Connecting your key
+
+1. Get your token at unusualwhales.com/dashboard/api (it's a UUID).
+2. Either paste it into **WHALES → Settings** (stored only in the local SQLite DB under `data/`, which is git‑ignored), or put
+   `UW_API_KEY=…` in a `.env` file at the repo root (see `.env.example`).
+
+The key never reaches the browser. All requests go through the local server, which:
+
+- only forwards paths that exist in the endpoint catalog;
+- keeps your requests under your plan's per‑minute limit (configurable with `UW_MAX_RPM`) and caches identical live requests for about 10 seconds;
+- falls back to the last good response on 429/5xx;
+- refuses requests from other websites' origins, so they can't spend your quota.
+
+### Try it without a key
+
+```bash
+npm install
+npm run dev:mock      # mock Unusual Whales API on :4100 + terminal on :3000
+```
+
+### Tests
+
+```bash
+npm test              # server (proxy hits all 221 GET endpoints against the mock) + web unit tests
+npm run dev:mock      # then, in another terminal:
+npx playwright install chromium && npm run test:e2e   # headless browser walk-through of every section
+```
+
+The endpoint catalog is generated from UW's OpenAPI spec. If UW adds endpoints, refresh it with `npm run gen:uw`.
 
 <br/>
 
@@ -108,8 +156,8 @@ No paid API, no keys, and no single point of failure — every endpoint has a fa
 ## 🚀 Quick start
 
 ```bash
-git clone https://github.com/ErTasselli/openterminal.git
-cd openterminal
+git clone https://github.com/nornosnibor/RahnbergTerminal-by-Claude.git
+cd RahnbergTerminal-by-Claude
 npm install
 npm run dev
 ```
@@ -158,12 +206,14 @@ Portfolio data persists in the `terminal-data` volume (SQLite, WAL mode).
 ├── server/                  # Express + TypeScript API
 │   └── src/
 │       ├── providers/       # nasdaq, tradingview, yahoo, stooq, fred, coingecko, binance, news
-│       ├── routes/          # market, portfolio, ai
+│       ├── routes/          # market, portfolio, ai, uw (Unusual Whales proxy + scans)
+│       ├── uw/              # endpoint catalog (generated), client, mock UW server
 │       ├── cache.ts         # TTL cache with stale-while-revalidate fallback
 │       └── db.ts            # SQLite (better-sqlite3, WAL)
 └── web/                      # Next.js 15 + React 19 + Tailwind 4
     ├── components/           # TopBar, Sidebar, Workspace, CommandPalette
     ├── components/widgets/   # Chart, Quote, Watchlist, News, Screener, Heatmap, Crypto, Options, Macro, Portfolio, AI
+    ├── components/whales/    # WHALES page: sections, DataTable, charts, ParamForm
     ├── lib/                  # API client, technical indicators
     └── store/                # Zustand store (workspace layout, persisted)
 ```

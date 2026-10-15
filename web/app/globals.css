@@ -125,6 +125,10 @@ select {
   font-family: inherit;
   outline: none;
 }
+input::placeholder,
+textarea::placeholder {
+  color: #4a4a4a;
+}
 input:focus,
 select:focus {
   border-color: var(--amber);

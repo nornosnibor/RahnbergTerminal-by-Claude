@@ -9,6 +9,7 @@ type Status = {
   ok: boolean;
   providers: Array<{ name: string; ok: number; failed: number; lastLatencyMs: number | null }>;
   ai: boolean;
+  uw?: boolean;
 };
 
 function Clock({ tz, label }: { tz: string; label: string }) {
@@ -40,6 +41,8 @@ function marketStateNY(): { label: string; open: boolean } {
 export default function TopBar() {
   const setCommandOpen = useTerminal((s) => s.setCommandOpen);
   const activeSymbol = useTerminal((s) => s.activeSymbol);
+  const page = useTerminal((s) => s.page);
+  const setPage = useTerminal((s) => s.setPage);
   const { data: status } = useQuery({
     queryKey: ["status"],
     queryFn: () => apiGet<Status>("/api/status"),
@@ -51,7 +54,15 @@ export default function TopBar() {
 
   return (
     <header className="flex items-center gap-4 px-3 h-8 bg-[var(--panel-2)] border-b border-[var(--border)] text-[11px] shrink-0">
-      <span className="amber font-bold tracking-widest">OPENTERMINAL</span>
+      <span className="amber font-bold tracking-widest">RAHNBERG</span>
+      <span className="inline-flex">
+        <button className={`term-btn !py-0 ${page === "terminal" ? "active" : ""}`} onClick={() => setPage("terminal")} title="Widget workspace">
+          TERMINAL
+        </button>
+        <button className={`term-btn !py-0 ${page === "whales" ? "active" : ""}`} onClick={() => setPage("whales")} title="Unusual Whales data (⌥W)">
+          🐋 WHALES
+        </button>
+      </span>
       <span className={market.open ? "up" : "down"}>● {market.label}</span>
       <Clock tz="America/New_York" label="NY" />
       <Clock tz="Europe/Rome" label="MIL" />
@@ -69,6 +80,7 @@ export default function TopBar() {
           ? healthy.map((p) => `${p.name} ${p.lastLatencyMs ?? "—"}ms`).join(" · ")
           : "connecting…"}
       </span>
+      <span className={status?.uw ? "up" : "dim"} title="Unusual Whales API key">UW {status?.uw ? "●" : "○"}</span>
       <span className={status?.ai ? "up" : "dim"}>AI {status?.ai ? "●" : "○"}</span>
     </header>
   );

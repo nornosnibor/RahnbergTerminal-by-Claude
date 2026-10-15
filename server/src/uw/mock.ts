@@ -5,7 +5,7 @@
 
 import express from "express";
 import samplesJson from "./samples.json" with { type: "json" };
-import { matchEndpoint } from "./catalog.js";
+import { matchEndpoint, type UwEndpoint } from "./catalog.js";
 
 const samples = samplesJson as Record<string, unknown>;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -43,7 +43,9 @@ function rowCount(path: string): number {
 }
 
 function expandRows(rows: Record<string, unknown>[], path: string, ticker: string | undefined, rand: () => number) {
-  const template = rows[0];
+  // Some spec examples omit fields the schema defines (e.g. `strike` on spot-exposures/strike).
+  const template = /exposure.*strike|oi-per-strike|flow-per-strike/.test(path) && !("strike" in rows[0]) ? { strike: "100", ...rows[0] } : rows[0];
+  const levelLadder = /price-levels/.test(path); // here `price` IS the ladder, not spot
   const n = rowCount(path);
   const spot = SPOT[ticker ?? "SPY"] ?? 100 + Math.round(rand() * 300);
   const byStrike = /strike|price-levels/.test(path);
@@ -70,11 +72,12 @@ function expandRows(rows: Record<string, unknown>[], path: string, ticker: strin
         const base = Number(v);
         let val: number;
         if (k === "strike") val = byStrike ? strike : spot * (0.9 + rand() * 0.2);
-        else if (PRICE_KEYS.test(k)) val = byStrike && k === "price" ? strike : spot * (0.985 + rand() * 0.03);
+        else if (PRICE_KEYS.test(k)) val = levelLadder && k === "price" ? strike : k === "price" && byStrike ? spot : spot * (0.985 + rand() * 0.03);
         else if (byStrike && /gamma|gex|delta|vanna|charm|oi|volume|premium/.test(k)) {
           const mag = Math.max(Math.abs(base), 1e6) * (0.2 + bell * 2.5) * (0.6 + rand() * 0.8);
           val = k.startsWith("put") && /gamma|gex|charm/.test(k) ? -mag : mag;
-        } else if (intraday && SIGNED_KEYS.test(k)) val = Math.max(Math.abs(base), 1e5) * walk * (k.includes("put") ? -0.7 : 1);
+        } else if (k === "nope" || k === "nope_fill") val = (rand() - 0.45) * 40;
+        else if (intraday && SIGNED_KEYS.test(k)) val = Math.max(Math.abs(base), 1e5) * walk * (k.includes("put") ? -0.7 : 1);
         else if (SIGNED_KEYS.test(k)) val = Math.abs(base || 1) * (rand() * 2 - 0.9) * 1.5;
         else val = Math.abs(base) * (0.3 + rand() * 1.4) || rand() * 100;
         out = numberLike(v as string | number, val);
@@ -85,9 +88,27 @@ function expandRows(rows: Record<string, unknown>[], path: string, ticker: strin
   });
 }
 
+/** Mirror UW's 422s for missing required params and out-of-range limits, so UI bugs surface in tests. */
+export function validateQuery(ep: UwEndpoint, query: URLSearchParams): string | null {
+  for (const p of ep.params) {
+    if (p.in !== "query") continue;
+    if (p.required && !query.has(p.name)) return `Missing required query parameter: ${p.name}`;
+    const raw = query.get(p.name);
+    if (raw === null) continue;
+    if (p.enum && !p.array && !p.enum.includes(raw)) return `Invalid value for ${p.name}: ${raw}`;
+    if (p.name === "limit") {
+      const max = p.max ?? Number(p.description?.match(/Max:?\s*(\d+)/i)?.[1] ?? NaN);
+      if (Number(raw) > max) return `limit must be <= ${max}`;
+    }
+  }
+  return null;
+}
+
 export function mockResponse(method: string, path: string, query: URLSearchParams): unknown {
   const match = matchEndpoint(method, path);
   if (!match) return undefined;
+  const invalid = validateQuery(match.endpoint, query);
+  if (invalid) throw new Error(invalid);
   const sample = structuredClone(samples[`${method} ${match.endpoint.path}`] ?? { data: [] }) as any;
   const ticker = match.pathParams.ticker?.toUpperCase() ?? query.get("ticker_symbol")?.split(",")[0]?.toUpperCase();
   const rand = rng(`${path}?${query}`);
@@ -98,6 +119,14 @@ export function mockResponse(method: string, path: string, query: URLSearchParam
     const limit = Number(query.get("limit"));
     if (limit > 0) rows = rows.slice(0, limit);
     return wrapped ? { ...sample, data: rows } : rows;
+  }
+  // Objects holding several lists (movers → most_active/top_gainers/…): expand each list.
+  if (data && typeof data === "object" && !Array.isArray(data)) {
+    for (const [k, v] of Object.entries(data)) {
+      if (Array.isArray(v) && v[0] && typeof v[0] === "object" && !Array.isArray(v[0])) {
+        data[k] = expandRows(v, `${match.endpoint.path}/${k}`, match.pathParams.ticker?.toUpperCase(), rand).slice(0, 25);
+      }
+    }
   }
   if (data && typeof data === "object" && !Array.isArray(data) && ticker) {
     for (const k of ["ticker", "symbol"]) if (k in data) data[k] = ticker;

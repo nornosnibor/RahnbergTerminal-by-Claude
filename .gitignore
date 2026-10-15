@@ -10,3 +10,4 @@ data/*.db-*
 data/*.db-journal
 web/out/
 *.tsbuildinfo
+e2e-shots/
