@@ -1,4 +1,4 @@
-import { num, type Row } from "./format";
+import { num, sortByTime, type Row } from "./format";
 
 export type GexMode = "oi" | "vol" | "dir";
 export type Greek = "gamma" | "delta" | "vanna" | "charm";
@@ -76,7 +76,7 @@ export function windowAround(bars: StrikeBar[], spot: number | null, pct: number
 export function cumulativeFlow(rows: Row[]): Array<{ t: string; calls: number; puts: number; net: number }> {
   let c = 0;
   let p = 0;
-  return rows
+  return sortByTime(rows)
     .map((r) => {
       c += num(r.net_call_premium) ?? 0;
       p += num(r.net_put_premium) ?? 0;

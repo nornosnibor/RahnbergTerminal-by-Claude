@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useUw } from "../../../lib/uw/api";
-import { num, toRows } from "../../../lib/uw/format";
+import { num, sortByTime, toRows } from "../../../lib/uw/format";
 import { computeLevels, strikeExposure, windowAround, type Greek } from "../../../lib/uw/gex";
 import { useTerminal } from "../../../store/terminal";
 import { COLORS, FlowLines, GexLadder, SimpleBars } from "../charts";
@@ -53,6 +53,8 @@ export default function Gex() {
   const { spot } = useSpot(ticker);
   const [greek, setGreek] = useState<Greek>("gamma");
   const [spotMode, setSpotMode] = useState<"oi" | "vol" | "dir">("oi");
+  // One greek at a time: charm runs orders of magnitude larger than gamma and would flatten it.
+  const [spotGreek, setSpotGreek] = useState<"gamma" | "vanna" | "charm">("gamma");
 
   const byExpiry = useUw("/api/stock/{ticker}/greek-exposure/expiry", { ticker });
   const expiryData = useMemo(
@@ -69,19 +71,17 @@ export default function Gex() {
   const spotEx = useUw("/api/stock/{ticker}/spot-exposures", { ticker }, { live: true });
   const spotSeries = useMemo(
     () =>
-      toRows(spotEx.data).map((r) => ({
+      sortByTime(toRows(spotEx.data)).map((r) => ({
         t: String(r.time ?? ""),
-        gamma: num(r[`gamma_per_one_percent_move_${spotMode}`]) ?? 0,
-        vanna: num(r[`vanna_per_one_percent_move_${spotMode}`]) ?? 0,
-        charm: num(r[`charm_per_one_percent_move_${spotMode}`]) ?? 0,
+        value: num(r[`${spotGreek}_per_one_percent_move_${spotMode}`]) ?? 0,
       })),
-    [spotEx.data, spotMode]
+    [spotEx.data, spotMode, spotGreek]
   );
 
   const hist = useUw("/api/stock/{ticker}/greek-exposure", { ticker });
   const histSeries = useMemo(
     () =>
-      toRows(hist.data).map((r) => ({
+      sortByTime(toRows(hist.data)).map((r) => ({
         date: String(r.date ?? ""),
         net: (num(r[`call_${greek}`]) ?? 0) + (num(r[`put_${greek}`]) ?? 0),
       })),
@@ -91,7 +91,7 @@ export default function Gex() {
   const greekFlow = useUw("/api/stock/{ticker}/greek-flow", { ticker }, { live: true });
   const flowSeries = useMemo(
     () =>
-      toRows(greekFlow.data).map((r) => ({
+      sortByTime(toRows(greekFlow.data)).map((r) => ({
         t: String(r.timestamp ?? ""),
         dir_delta: num(r.dir_delta_flow) ?? 0,
         otm_dir_delta: num(r.otm_dir_delta_flow) ?? 0,
@@ -124,6 +124,7 @@ export default function Gex() {
         title={`Exposure per 1% move, intraday · ${ticker}`}
         right={
           <>
+            <Segmented value={spotGreek} onChange={setSpotGreek} options={[{ value: "gamma", label: "Γ" }, { value: "vanna", label: "vanna" }, { value: "charm", label: "charm" }]} />
             <Segmented value={spotMode} onChange={setSpotMode} options={[{ value: "oi", label: "OI" }, { value: "vol", label: "Vol" }, { value: "dir", label: "Dir" }]} />
             <Freshness fetching={spotEx.isFetching} updatedAt={spotEx.dataUpdatedAt} />
             <ExplorerLink path="/api/stock/{ticker}/spot-exposures" params={{ ticker }} />
@@ -133,11 +134,7 @@ export default function Gex() {
         <ErrorNote error={spotEx.error} />
         <FlowLines
           data={spotSeries}
-          lines={[
-            { key: "gamma", name: "Gamma $/1%", color: COLORS.AMBER },
-            { key: "vanna", name: "Vanna $/1%", color: "#40c4ff" },
-            { key: "charm", name: "Charm $/1%", color: "#b388ff" },
-          ]}
+          lines={[{ key: "value", name: `${spotGreek} $ per 1% move`, color: spotGreek === "gamma" ? COLORS.AMBER : spotGreek === "vanna" ? "#40c4ff" : "#b388ff" }]}
         />
       </Panel>
 

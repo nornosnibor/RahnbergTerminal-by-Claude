@@ -2,14 +2,14 @@
 
 import { useMemo, useState } from "react";
 import { useUw } from "../../../lib/uw/api";
-import { fmtBigNum, num, toRows, type Row } from "../../../lib/uw/format";
+import { fmtBigNum, latestRow, num, toRows, type Row } from "../../../lib/uw/format";
 import { computeLevels, cumulativeFlow, pctFrom, strikeExposure, windowAround, type GexMode, type Greek } from "../../../lib/uw/gex";
 import { useTerminal } from "../../../store/terminal";
 import { COLORS, FlowLines, GexLadder } from "../charts";
 import { EndpointTable, ErrorNote, ExplorerLink, Freshness, Panel, Segmented, Stat } from "../ui";
 
 const first = (d: unknown): Row | undefined => toRows(d)[0];
-const last = (d: unknown): Row | undefined => toRows(d).at(-1);
+const last = (d: unknown): Row | undefined => latestRow(toRows(d)); // by timestamp — some series are newest-first
 const pctTxt = (p: number | null) => (p === null ? "" : `${p >= 0 ? "+" : ""}${p.toFixed(2)}%`);
 
 export function useSpot(ticker: string) {

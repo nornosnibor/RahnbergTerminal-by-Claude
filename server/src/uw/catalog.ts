@@ -112,3 +112,13 @@ export function toRows(json: unknown): Record<string, unknown>[] {
   if (body === null || body === undefined) return [];
   return [{ value: body }];
 }
+
+const TIME_KEYS = ["timestamp", "time", "tape_time", "executed_at", "created_at", "market_date", "date", "start_time"];
+
+/** The most recent row by its time/date field — UW returns some series newest-first, others oldest-first. */
+export function latestRow<T extends Record<string, unknown>>(rows: T[]): T | undefined {
+  if (rows.length <= 1) return rows[0];
+  const key = TIME_KEYS.find((k) => rows.some((r) => typeof r[k] === "string" && !Number.isNaN(Date.parse(String(r[k])))));
+  if (!key) return rows[rows.length - 1];
+  return rows.reduce((best, r) => (Date.parse(String(r[key])) > Date.parse(String(best[key])) ? r : best));
+}

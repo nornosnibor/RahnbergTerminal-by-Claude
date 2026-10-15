@@ -1,8 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useUw } from "../../../lib/uw/api";
-import { fmtBigNum, num, toRows, type Row } from "../../../lib/uw/format";
+import { useUw, UwHttpError } from "../../../lib/uw/api";
+import { fmtBigNum, latestRow, num, toRows, type Row } from "../../../lib/uw/format";
+import { valuation } from "../../../lib/uw/value";
 import { useTerminal } from "../../../store/terminal";
 import { COLORS, SimpleBars } from "../charts";
 import DataTable from "../DataTable";
@@ -11,15 +12,18 @@ import { useSpot } from "./Cockpit";
 
 type Statement = "income-statements" | "balance-sheets" | "cash-flows";
 
+/** Fraction → percent, keeping missing values missing (a gap in the chart, not a fake 0). */
+const x100 = (v: number | null) => (v === null ? null : v * 100);
 const STATEMENT_COLS: Record<Statement, string[]> = {
   "income-statements": ["fiscal_date_ending", "report_type", "total_revenue", "gross_profit", "operating_income", "ebitda", "net_income", "research_and_development", "operating_expenses"],
   "balance-sheets": ["fiscal_date_ending", "report_type", "total_assets", "total_liabilities", "total_shareholder_equity", "cash_and_cash_equivalents", "long_term_debt", "short_term_debt", "total_current_assets", "total_current_liabilities", "retained_earnings"],
   "cash-flows": ["fiscal_date_ending", "report_type", "operating_cashflow", "capital_expenditures", "free_cash_flow", "dividend_payout", "payments_for_repurchase_of_common_stock", "stock_based_compensation", "change_in_cash_and_cash_equivalents"],
 };
 
-/** Revenue / net income bars, oldest → newest. */
+/** Quarterly revenue / net income bars, oldest → newest (annual rows would dwarf the quarters). */
 function trend(rows: Row[]) {
-  return [...rows]
+  return rows
+    .filter((r) => String(r.report_type ?? "quarterly").toLowerCase() === "quarterly")
     .map((r) => ({
       period: String(r.fiscal_date_ending ?? r.date ?? "").slice(0, 7),
       revenue: num(r.total_revenue) ?? 0,
@@ -71,7 +75,7 @@ function Financials({ ticker }: { ticker: string }) {
 function Seasonality({ ticker }: { ticker: string }) {
   const q = useUw("/api/seasonality/{ticker}/monthly", { ticker });
   const data = useMemo(
-    () => toRows(q.data).map((r) => ({ month: String(r.month), avg: (num(r.avg_change) ?? 0) * 100, positive: (num(r.positive_months_perc) ?? 0) * 100 })),
+    () => toRows(q.data).map((r) => ({ month: String(r.month), avg: x100(num(r.avg_change)), positive: x100(num(r.positive_months_perc)) })),
     [q.data]
   );
   return (
@@ -85,33 +89,45 @@ function Seasonality({ ticker }: { ticker: string }) {
 export default function Value() {
   const ticker = useTerminal((s) => s.activeSymbol).replace(/^\^/, "");
   const { spot } = useSpot(ticker);
+  // /companies/profile needs the Advanced tier; without it the same stats are derived from
+  // info + screener + income statements + analyst ratings (see lib/uw/value.ts).
   const profileQ = useUw("/api/companies/{ticker}/profile", { ticker });
-  const p = toRows(profileQ.data)[0];
-  const shortQ = useUw("/api/shorts/{ticker}/interest-float/v2", { ticker });
-  const sh = toRows(shortQ.data).at(-1);
-  const target = num(p?.analyst_target_price);
+  const restricted = profileQ.error instanceof UwHttpError && profileQ.error.planRestricted;
+  const info = toRows(useUw("/api/stock/{ticker}/info", { ticker }).data)[0];
+  const screener = toRows(useUw("/api/screener/stocks", { ticker }).data)[0];
+  const income = toRows(useUw("/api/stock/{ticker}/income-statements", { ticker }).data);
+  const analysts = toRows(useUw("/api/screener/analysts", { ticker, limit: 100 }).data);
+  const sh = latestRow(toRows(useUw("/api/shorts/{ticker}/interest-float/v2", { ticker }).data));
+  const val = valuation({ spot, profile: restricted ? undefined : toRows(profileQ.data)[0], info, screener, income, analysts });
+  const target = val.analystTarget;
   const upside = target && spot ? ((target - spot) / spot) * 100 : null;
-  const lo = num(p?.week_52_low);
-  const hi = num(p?.week_52_high);
+  const lo = val.week52Low;
+  const hi = val.week52High;
   const rangePos = lo !== null && hi !== null && spot !== null && hi > lo ? ((spot - lo) / (hi - lo)) * 100 : null;
-  const v = (k: string, d = 2) => (num(p?.[k]) === null ? "—" : num(p?.[k])!.toFixed(d));
+  const f = (n: number | null, d = 2) => (n === null ? "—" : n.toFixed(d));
+  const pct = (n: number | null) => (n === null ? "—" : `${(n < 1 ? n * 100 : n).toFixed(2)}%`);
 
   return (
     <div className="grid gap-1 p-1 grid-cols-12 auto-rows-min">
       <div className="col-span-12 flex flex-wrap gap-1">
-        <Stat label={p?.name ? String(p.name) : ticker} value={spot ?? "—"} sub={[p?.sector, p?.industry].filter(Boolean).join(" · ") || undefined} />
-        <Stat label="Market cap" value={num(p?.market_cap) ? fmtBigNum(num(p?.market_cap)!) : "—"} />
-        <Stat label="P/E" value={v("pe_ratio", 1)} sub={`PEG ${v("peg_ratio")}`} />
-        <Stat label="EPS (ttm)" value={v("eps")} />
-        <Stat label="Div yield" value={num(p?.dividend_yield) !== null ? `${(num(p?.dividend_yield)! * (num(p?.dividend_yield)! < 1 ? 100 : 1)).toFixed(2)}%` : "—"} />
-        <Stat label="Analyst target" value={target ?? "—"} sub={upside === null ? undefined : `${upside >= 0 ? "+" : ""}${upside.toFixed(1)}% vs spot`} cls={upside === null ? "" : upside >= 0 ? "up" : "down"} />
-        <Stat label="52w range" value={rangePos === null ? "—" : `${rangePos.toFixed(0)}%`} sub={lo !== null ? `${lo} – ${hi}` : undefined} cls={rangePos === null ? "" : rangePos < 25 ? "up" : rangePos > 85 ? "down" : ""} />
-        <Stat label="Beta" value={v("beta")} />
-        <Stat label="EBITDA" value={num(p?.ebitda) ? fmtBigNum(num(p?.ebitda)!) : "—"} />
+        <Stat label={val.name ?? ticker} value={spot ?? "—"} sub={[val.sector, val.industry].filter(Boolean).join(" · ") || undefined} />
+        <Stat label="Market cap" value={val.marketCap ? fmtBigNum(val.marketCap) : "—"} />
+        <Stat label="P/E (ttm)" value={f(val.pe, 1)} sub={`PEG ${f(val.peg)}`} />
+        <Stat label="EPS (ttm)" value={f(val.eps)} />
+        <Stat label="Div yield" value={pct(val.dividendYield)} />
+        <Stat
+          label="Analyst target"
+          value={target === null ? "—" : f(target)}
+          sub={upside === null ? undefined : `${upside >= 0 ? "+" : ""}${upside.toFixed(1)}% vs spot${val.analystCount ? ` · ${val.analystCount} ratings/90d` : ""}`}
+          cls={upside === null ? "" : upside >= 0 ? "up" : "down"}
+        />
+        <Stat label="52w range" value={rangePos === null ? "—" : `${rangePos.toFixed(0)}%`} sub={lo !== null ? `${f(lo)} – ${f(hi)}` : undefined} cls={rangePos === null ? "" : rangePos < 25 ? "up" : rangePos > 85 ? "down" : ""} />
+        <Stat label="Beta" value={f(val.beta)} />
+        <Stat label="EBITDA (ttm)" value={val.ebitda ? fmtBigNum(val.ebitda) : "—"} />
         <Stat label="Short % float" value={num(sh?.si_float) !== null ? `${(num(sh?.si_float)! * (num(sh?.si_float)! < 1 ? 100 : 1)).toFixed(1)}%` : "—"} sub={num(sh?.days_to_cover) !== null ? `${num(sh?.days_to_cover)!.toFixed(1)} days to cover` : undefined} />
       </div>
-      {p?.description ? <div className="col-span-12 text-[11px] dim px-1 line-clamp-2" title={String(p.description)}>{String(p.description)}</div> : null}
-      <ErrorNote error={profileQ.error} />
+      {val.description ? <div className="col-span-12 text-[11px] dim px-1 line-clamp-2" title={val.description}>{val.description}</div> : null}
+      {val.derived && <div className="col-span-12 text-[10px] dim px-1">P/E, EPS and EBITDA are computed from the last four quarterly reports; analyst target is the 90-day average of rating changes.</div>}
 
       <Financials ticker={ticker} />
 

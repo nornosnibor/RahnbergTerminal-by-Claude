@@ -19,16 +19,24 @@ const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1680, height: 1000 } });
 const problems = [];
 let uwCalls = 0;
+let planRestricted = 0;
+// E2E_REAL=1: running against a real key — endpoints outside the plan are expected, not failures.
+const REAL = process.env.E2E_REAL === "1";
 
 page.on("pageerror", (e) => problems.push(`pageerror: ${e.message}`));
 page.on("console", (m) => {
-  if (m.type() === "error" && !/Download the React DevTools|favicon/.test(m.text())) problems.push(`console: ${m.text().slice(0, 300)}`);
+  // Failed-resource lines duplicate the HTTP check above (which knows about plan restrictions).
+  if (m.type() === "error" && !/Download the React DevTools|favicon|Failed to load resource/.test(m.text())) problems.push(`console: ${m.text().slice(0, 300)}`);
 });
 page.on("response", async (r) => {
   const url = r.url();
   if (!url.includes("/api/uw/")) return;
   uwCalls++;
-  if (r.status() >= 400) problems.push(`HTTP ${r.status()} ${url.replace(BASE, "")} ${(await r.text().catch(() => "")).slice(0, 200)}`);
+  if (r.status() >= 400) {
+    const text = await r.text().catch(() => "");
+    if (REAL && text.includes('"planRestricted":true')) return void planRestricted++;
+    problems.push(`HTTP ${r.status()} ${url.replace(BASE, "")} ${text.slice(0, 200)}`);
+  }
 });
 
 const settle = async (ms = 1200) => {
@@ -46,7 +54,11 @@ const visibleErrors = async (where) => {
 };
 const step = async (label, fn) => {
   const before = problems.length;
-  await fn();
+  try {
+    await fn();
+  } catch (e) {
+    problems.push(`${label}: ${String(e.message ?? e).split("\n")[0]}`);
+  }
   await visibleErrors(label);
   console.log(`${problems.length === before ? "✓" : "✗"} ${label}`);
 };
@@ -87,7 +99,7 @@ for (const [label, file, tabs] of sections) {
     const rows = await page.locator("table.uw-table tbody tr").count();
     const charts = await page.locator(".recharts-surface").count();
     console.log(`    rows=${rows} charts=${charts}`);
-    if (label !== "SETTINGS" && rows + charts === 0) problems.push(`${label}: rendered no tables or charts`);
+    if (label !== "SETTINGS" && rows + charts === 0 && !REAL) problems.push(`${label}: rendered no tables or charts`);
   });
   for (const tab of tabs) {
     await step(`  tab ${label} › ${tab}`, async () => {
@@ -111,7 +123,7 @@ await step("ticker switch → NVDA reloads cockpit", async () => {
     price = Number((await priceCell.innerText()).replace(/,/g, "")); // "—" while loading
     if (!(price > 0)) await page.waitForTimeout(500);
   }
-  if (!(price > 170 && price < 195)) problems.push(`cockpit header shows ${price} after switching to NVDA`);
+  if (REAL ? !(price > 0) : !(price > 170 && price < 195)) problems.push(`cockpit header shows ${price} after switching to NVDA`);
   await shot("12-cockpit-nvda");
 });
 
@@ -199,10 +211,10 @@ await step("explorer: open from panel ⇱, search, run, json, sub-tables", async
   await settle(1500);
   await page.getByText("Result ·").waitFor();
   await shot("19-explorer-from-panel");
-  await page.getByPlaceholder(/search 230 endpoints/).fill("movers");
-  await page.getByRole("button", { name: /Top Movers$/ }).first().click();
+  await page.getByPlaceholder(/search 230 endpoints/).fill("full financials");
+  await page.getByRole("button", { name: /Full Financials/ }).first().click();
   await click("▶ run", true);
-  await page.getByRole("button", { name: /top_gainers/ }).click();
+  await page.getByRole("button", { name: /income_statements/ }).click();
   await settle(400);
   await click("json", true);
   await shot("20-explorer-json");
@@ -234,7 +246,7 @@ await step("explorer: run 40 assorted endpoints from the list", async () => {
 await step("explorer: write endpoint requires confirmation", async () => {
   const search = page.getByPlaceholder(/search 230 endpoints/);
   await search.fill("Create stock watchlist");
-  await page.getByRole("button", { name: /Create stock watchlist$/ }).first().click();
+  await page.getByRole("button", { name: /Create stock watchlist/ }).first().click();
   page.once("dialog", (d) => d.dismiss());
   await click(/send POST/);
   if (await page.getByText("Response").count()) problems.push("write ran without confirmation");
@@ -251,7 +263,7 @@ await step("⌥W toggles back to terminal", async () => {
   await page.getByText("Flow alerts").first().waitFor();
 });
 
-console.log(`\n${uwCalls} /api/uw responses observed`);
+console.log(`\n${uwCalls} /api/uw responses observed${REAL ? ` (${planRestricted} not in plan)` : ""}`);
 await browser.close();
 if (problems.length) {
   console.log(`\n✗ ${problems.length} problem(s):`);

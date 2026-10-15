@@ -149,13 +149,20 @@ export function createMockUw() {
     if (!UUID_RE.test(token)) {
       return res.status(401).json({ code: "authentication_required", message: "The API token provided is not in the expected format." });
     }
-    if (token.startsWith("deadbeef")) return res.status(403).json({ message: "Your plan does not include this endpoint." });
+    if (token.startsWith("deadbeef")) return res.status(403).json({ message: "This endpoint requires the Advanced API tier or higher." });
+    // Basic-plan key: Advanced-only endpoints fail the way UW really does it (422 + `msg`).
+    if (token.startsWith("cccccccc") && /^\/api\/(companies|market\/movers|futures)/.test(req.path)) {
+      return res.status(422).json({ path: req.path, msg: "Missing access. This endpoint is available with the API Advanced subscription." });
+    }
     if (token.startsWith("1a1a1a1a")) return res.status(429).json({ message: "Too many requests" });
     minuteCount++;
     res.set("x-uw-daily-req-count", String(1000 + minuteCount));
     res.set("x-uw-token-req-limit", "20000");
     res.set("x-uw-minute-req-counter", String(minuteCount));
-    res.set("x-uw-req-per-minute-remaining", String(Math.max(0, 120 - minuteCount)));
+    // Real keys report a large per-minute budget; the 2b2b… test key simulates an exhausted one.
+    const exhausted = token.startsWith("2b2b2b2b");
+    res.set("x-uw-req-per-minute-remaining", exhausted ? "0" : String(1_000_000 - minuteCount));
+    res.set("x-uw-req-per-minute-reset", exhausted ? "1500" : "60000");
     const qs = new URLSearchParams(req.originalUrl.split("?")[1] ?? "");
     let body: unknown;
     try {

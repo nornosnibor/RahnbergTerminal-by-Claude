@@ -26,6 +26,23 @@ export function toRows(json: unknown): Row[] {
   return [{ value: body }];
 }
 
+const TIME_KEYS = ["timestamp", "time", "tape_time", "executed_at", "created_at", "market_date", "date", "start_time"];
+const timeKeyOf = (rows: Row[]) => TIME_KEYS.find((k) => rows.some((r) => typeof r[k] === "string" && !Number.isNaN(Date.parse(String(r[k])))));
+
+/** The newest row — UW returns some series newest-first (NOPE, short interest) and others oldest-first. */
+export function latestRow(rows: Row[]): Row | undefined {
+  if (rows.length <= 1) return rows[0];
+  const k = timeKeyOf(rows);
+  if (!k) return rows[rows.length - 1];
+  return rows.reduce((best, r) => (Date.parse(String(r[k])) > Date.parse(String(best[k])) ? r : best));
+}
+
+/** Oldest → newest, for charts and running totals. */
+export function sortByTime(rows: Row[]): Row[] {
+  const k = timeKeyOf(rows);
+  return k ? [...rows].sort((a, b) => Date.parse(String(a[k])) - Date.parse(String(b[k]))) : rows;
+}
+
 /** Every list-of-objects inside a payload (e.g. financials → balance_sheets, cash_flows…), for sub-table pickers. */
 export function nestedTables(json: unknown): Array<{ key: string; rows: Row[] }> {
   const body = json && typeof json === "object" && !Array.isArray(json) && "data" in json ? (json as { data: unknown }).data : json;

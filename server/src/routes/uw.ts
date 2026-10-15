@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from "express";
-import { catalog, findByPath, matchEndpoint, buildPath, toRows } from "../uw/catalog.js";
-import { UwError, baseUrl, getKey, isValidKey, maskKey, saveKey, usage, uwFetch } from "../uw/client.js";
+import { catalog, findByPath, matchEndpoint, buildPath, latestRow, toRows } from "../uw/catalog.js";
+import { UwError, baseUrl, getKey, isValidKey, maskKey, restricted, saveKey, usage, uwFetch } from "../uw/client.js";
 
 export const uwRouter = Router();
 
@@ -21,7 +21,8 @@ uwRouter.use((req, res, next) => {
 function sendError(res: Response, err: unknown) {
   const status = err instanceof UwError ? err.status : 500;
   const message = err instanceof Error ? err.message : String(err);
-  res.status(status).json({ error: message, status, detail: err instanceof UwError ? err.body : undefined });
+  const planRestricted = err instanceof UwError && err.planRestricted;
+  res.status(status).json({ error: message, status, planRestricted, detail: err instanceof UwError ? err.body : undefined });
 }
 
 /** Raw query string of the incoming request — kept verbatim so `issue_types[]=a&issue_types[]=b` survives. */
@@ -42,6 +43,8 @@ uwRouter.get("/status", (_req, res) => {
     baseUrl: baseUrl(),
     endpoints: catalog.endpoints.length,
     usage,
+    // Endpoint templates this key was refused for (not in the plan) — the UI greys them out.
+    restricted: [...restricted],
   });
 });
 
@@ -89,6 +92,7 @@ uwRouter.all("/proxy/*", async (req, res) => {
   try {
     const json = await uwFetch({
       method: req.method,
+      template: match.endpoint.path,
       path: match.upstreamPath,
       query: rawQuery(req),
       body: req.method === "GET" || req.method === "DELETE" ? undefined : req.body,
@@ -128,9 +132,10 @@ uwRouter.post("/scan", async (req, res) => {
   await Promise.all(
     list.map(async (ticker) => {
       try {
-        const json = await uwFetch({ path: buildPath(ep.path, { ...pathParams, ticker }), query: qs.toString() });
+        const json = await uwFetch({ path: buildPath(ep.path, { ...pathParams, ticker }), template: ep.path, query: qs.toString() });
         const r = toRows(json);
-        const picked = mode === "all" ? r : r.length ? [r[r.length - 1]] : [];
+        const latest = latestRow(r);
+        const picked = mode === "all" ? r : latest ? [latest] : [];
         for (const row of picked) rows.push({ ticker, ...row });
       } catch (err) {
         errors.push({ ticker, error: err instanceof Error ? err.message : String(err) });

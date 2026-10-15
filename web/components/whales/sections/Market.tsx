@@ -1,8 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useUw } from "../../../lib/uw/api";
-import { num, toRows, type Row } from "../../../lib/uw/format";
+import { useUw, UwHttpError } from "../../../lib/uw/api";
+import { num, sortByTime, toRows, type Row } from "../../../lib/uw/format";
 import { useTerminal } from "../../../store/terminal";
 import { COLORS, FlowLines, SignedBars } from "../charts";
 import DataTable from "../DataTable";
@@ -11,7 +11,7 @@ import { EndpointTable, ErrorNote, ExplorerLink, Freshness, Panel, Segmented } f
 const SECTORS = ["Technology", "Healthcare", "Financial Services", "Consumer Cyclical", "Communication Services", "Industrials", "Energy", "Consumer Defensive", "Basic Materials", "Real Estate", "Utilities"];
 
 const tideSeries = (rows: Row[]) =>
-  rows.map((r) => ({
+  sortByTime(rows).map((r) => ({
     t: String(r.timestamp ?? r.date ?? ""),
     calls: num(r.net_call_premium) ?? 0,
     puts: num(r.net_put_premium) ?? 0,
@@ -38,25 +38,45 @@ function Tide({ path, params }: { path: string; params: Record<string, string | 
   );
 }
 
+/**
+ * Top movers. `/api/market/movers` needs the Advanced tier; on other plans the same three lists
+ * are built from the stock screener (liquid names > $2B, ranked by today's % change / volume).
+ */
 function Movers() {
   const [tab, setTab] = useState<"most_active" | "top_gainers" | "top_losers">("most_active");
   const q = useUw("/api/market/movers", {}, { live: true });
-  const body = (q.data as { data?: Record<string, unknown> } | undefined)?.data ?? (q.data as Record<string, unknown> | undefined);
-  const rows = (Array.isArray(body?.[tab]) ? body?.[tab] : []) as Row[];
+  const restricted = q.error instanceof UwHttpError && q.error.planRestricted;
+  const fallback = useUw("/api/screener/stocks", { min_marketcap: 2_000_000_000, limit: 500 }, { live: true, enabled: restricted });
+  const rows = useMemo((): Row[] => {
+    if (!restricted) {
+      const body = (q.data as { data?: Record<string, unknown> } | undefined)?.data ?? (q.data as Record<string, unknown> | undefined);
+      return (Array.isArray(body?.[tab]) ? body?.[tab] : []) as Row[];
+    }
+    const list = toRows(fallback.data)
+      .map((r) => {
+        const close = num(r.close);
+        const prev = num(r.prev_close);
+        return { ticker: r.ticker, close: r.close, change_perc: close !== null && prev ? (close - prev) / prev : null, stock_volume: r.stock_volume, relative_volume: r.relative_volume, marketcap: r.marketcap, sector: r.sector };
+      })
+      .filter((r) => r.change_perc !== null);
+    const by = (k: "change_perc" | "stock_volume", dir: 1 | -1) => [...list].sort((a, b) => dir * ((num(b[k]) ?? 0) - (num(a[k]) ?? 0)));
+    return (tab === "top_gainers" ? by("change_perc", 1) : tab === "top_losers" ? by("change_perc", -1) : by("stock_volume", 1)).slice(0, 25);
+  }, [restricted, q.data, fallback.data, tab]);
+  const src = restricted ? fallback : q;
   return (
     <Panel
       className="col-span-12 xl:col-span-4 h-[360px]"
-      title="Top movers"
+      title={restricted ? "Top movers (from screener)" : "Top movers"}
       right={
         <>
           <Segmented value={tab} onChange={setTab} options={[{ value: "most_active", label: "active" }, { value: "top_gainers", label: "gainers" }, { value: "top_losers", label: "losers" }]} />
-          <Freshness fetching={q.isFetching} updatedAt={q.dataUpdatedAt} />
-          <ExplorerLink path="/api/market/movers" />
+          <Freshness fetching={src.isFetching} updatedAt={src.dataUpdatedAt} />
+          <ExplorerLink path={restricted ? "/api/screener/stocks" : "/api/market/movers"} />
         </>
       }
     >
-      <ErrorNote error={q.error} />
-      <DataTable rows={rows} bare />
+      <ErrorNote error={restricted ? fallback.error : q.error} />
+      <DataTable key={tab} rows={rows} bare />
     </Panel>
   );
 }

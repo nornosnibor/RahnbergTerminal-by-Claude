@@ -48,13 +48,19 @@ export type UwStatus = {
     lastLatencyMs: number | null;
     limits: Record<string, string>;
   };
+  restricted?: string[];
 };
 
 export type ParamValue = string | number | boolean | string[] | null | undefined;
 export type Params = Record<string, ParamValue>;
 
 export class UwHttpError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(
+    public status: number,
+    message: string,
+    /** The endpoint isn't included in the user's Unusual Whales plan. */
+    public planRestricted = false
+  ) {
     super(message);
   }
 }
@@ -80,7 +86,10 @@ export function buildUwUrl(path: string, params: Params = {}): string {
 
 async function parse<T>(res: Response): Promise<T> {
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new UwHttpError(res.status, (body as { error?: string }).error ?? `HTTP ${res.status}`);
+  if (!res.ok) {
+    const b = body as { error?: string; planRestricted?: boolean };
+    throw new UwHttpError(res.status, b.error ?? `HTTP ${res.status}`, Boolean(b.planRestricted));
+  }
   return body as T;
 }
 
@@ -134,7 +143,9 @@ export function useUw<T = unknown>(path: string, params: Params = {}, opts: { li
     queryKey: ["uw", path, params],
     queryFn: () => uwGet<T>(path, params),
     enabled: Boolean(status?.configured) && !missing && (opts.enabled ?? true),
-    refetchInterval: live && autoRefresh ? (opts.refreshMs ?? refreshSecs * 1000) : false,
+    // A plan-restricted endpoint will never start working mid-session — stop polling it.
+    refetchInterval: (query) =>
+      live && autoRefresh && !(query.state.error instanceof UwHttpError && query.state.error.planRestricted) ? (opts.refreshMs ?? refreshSecs * 1000) : false,
     retry: (count, err) => !(err instanceof UwHttpError && [400, 401, 403, 404, 422, 428, 503].includes(err.status)) && count < 1,
     // Keep showing the last result while filters refresh — but never another ticker's data.
     placeholderData: (prev, prevQuery) => {

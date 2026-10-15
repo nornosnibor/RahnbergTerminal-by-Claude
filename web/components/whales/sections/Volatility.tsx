@@ -2,11 +2,13 @@
 
 import { useMemo, useState } from "react";
 import { useUw } from "../../../lib/uw/api";
-import { num, toRows } from "../../../lib/uw/format";
+import { num, sortByTime, toRows } from "../../../lib/uw/format";
 import { useTerminal } from "../../../store/terminal";
 import { COLORS, SimpleLine } from "../charts";
 import { EndpointTable, ErrorNote, ExplorerLink, Panel, Segmented, Stat } from "../ui";
 
+/** Fraction → percent, keeping missing values missing (a gap in the chart, not a fake 0). */
+const x100 = (v: number | null) => (v === null ? null : v * 100);
 const pct = (v: number | null) => (v === null ? "—" : `${(Math.abs(v) <= 3 ? v * 100 : v).toFixed(1)}%`);
 
 function RiskReversal({ ticker }: { ticker: string }) {
@@ -16,7 +18,7 @@ function RiskReversal({ ticker }: { ticker: string }) {
   const [delta, setDelta] = useState("0.25");
   const expiry = list.includes(picked) ? picked : list[Math.min(2, list.length - 1)] ?? "";
   const q = useUw("/api/stock/{ticker}/historical-risk-reversal-skew", { ticker, expiry, delta }, { enabled: Boolean(expiry) });
-  const data = useMemo(() => toRows(q.data).map((r) => ({ date: String(r.date ?? ""), rr: num(r.risk_reversal) ?? 0 })), [q.data]);
+  const data = useMemo(() => sortByTime(toRows(q.data)).map((r) => ({ date: String(r.date ?? ""), rr: num(r.risk_reversal) ?? 0 })), [q.data]);
   return (
     <Panel
       className="col-span-12 xl:col-span-6 h-[280px]"
@@ -53,16 +55,16 @@ export default function Volatility() {
 
   const term = useUw("/api/stock/{ticker}/volatility/term-structure", { ticker });
   const termData = useMemo(
-    () => toRows(term.data).map((r) => ({ dte: String(r.dte ?? r.expiry), iv: (num(r.volatility) ?? 0) * 100, move: (num(r.implied_move_perc) ?? 0) * 100 })),
+    () => toRows(term.data).map((r) => ({ dte: String(r.dte ?? r.expiry), iv: x100(num(r.volatility)), move: x100(num(r.implied_move_perc)) })),
     [term.data]
   );
   const realized = useUw("/api/stock/{ticker}/volatility/realized", { ticker });
   const rvData = useMemo(
-    () => toRows(realized.data).map((r) => ({ date: String(r.date ?? ""), iv: (num(r.implied_volatility) ?? 0) * 100, rv: (num(r.realized_volatility) ?? 0) * 100 })),
+    () => sortByTime(toRows(realized.data)).map((r) => ({ date: String(r.date ?? ""), iv: x100(num(r.implied_volatility)), rv: x100(num(r.realized_volatility)) })),
     [realized.data]
   );
   const ivr = useUw("/api/stock/{ticker}/iv-rank", { ticker });
-  const ivrData = useMemo(() => toRows(ivr.data).map((r) => ({ date: String(r.date ?? ""), rank: num(r.iv_rank_1y) ?? 0 })), [ivr.data]);
+  const ivrData = useMemo(() => sortByTime(toRows(ivr.data)).map((r) => ({ date: String(r.date ?? ""), rank: num(r.iv_rank_1y) ?? 0 })), [ivr.data]);
 
   return (
     <div className="grid gap-1 p-1 grid-cols-12 auto-rows-min">

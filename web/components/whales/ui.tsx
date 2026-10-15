@@ -38,6 +38,13 @@ export function ErrorNote({ error }: { error: unknown }) {
   if (!error) return null;
   const status = error instanceof UwHttpError ? error.status : 0;
   const msg = error instanceof Error ? error.message : String(error);
+  if (error instanceof UwHttpError && error.planRestricted) {
+    return (
+      <div className="p-2 text-[11px] dim" title={msg}>
+        🔒 Not included in your Unusual Whales plan.
+      </div>
+    );
+  }
   const hint =
     status === 503 ? (
       <button className="term-btn ml-2" onClick={() => setSection("settings")}>

@@ -21,6 +21,7 @@ export function getKey(): { key: string | null; source: "settings" | "env" | nul
 
 export function saveKey(key: string | null): void {
   setSetting(SETTING_KEY, key ? key.trim() : null);
+  restricted.clear();
 }
 
 export function maskKey(key: string | null): string | null {
@@ -31,19 +32,32 @@ export class UwError extends Error {
   constructor(
     public status: number,
     message: string,
-    public body?: unknown
+    public body?: unknown,
+    public planRestricted = false
   ) {
     super(message);
   }
 }
 
-// ---- rate limiting -----------------------------------------------------------
-// UW enforces a per-minute request budget per token. Dashboards fire many requests at once,
-// so requests are queued here (bounded concurrency + sliding one-minute window) instead of
-// letting bursts turn into 429s.
+// UW signals "not in your plan" with 403 *or* 422 and a message like "requires the Advanced API
+// tier", "premium endpoint", "enterprise only", "Missing access…".
+const PLAN_RE = /requires the .*tier|add-on|premium endpoint|enterprise only|missing access|upgrade/i;
+export function isPlanRestriction(status: number, msg: string): boolean {
+  return (status === 403 || status === 422) && PLAN_RE.test(msg);
+}
 
-const MAX_CONCURRENT = Number(process.env.UW_MAX_CONCURRENT ?? 4);
-const maxPerMinute = () => Number(process.env.UW_MAX_RPM ?? 100);
+/** Endpoint templates the current key has been refused for. Cleared when the key changes. */
+export const restricted = new Set<string>();
+
+// ---- rate limiting -----------------------------------------------------------
+// UW enforces a per-minute request budget per token and reports what's left in
+// `x-uw-req-per-minute-remaining` / `-reset`. Requests are queued here (bounded concurrency,
+// an optional local cap via UW_MAX_RPM, and a pause when UW says the budget is nearly spent)
+// so dashboard bursts don't turn into 429s.
+
+const MAX_CONCURRENT = Number(process.env.UW_MAX_CONCURRENT ?? 6);
+const maxPerMinute = () => Number(process.env.UW_MAX_RPM ?? 1000);
+const upstream = { remaining: null as number | null, resetAt: 0 };
 const sent: number[] = [];
 let active = 0;
 const waiting: Array<() => void> = [];
@@ -52,6 +66,13 @@ async function acquire(): Promise<void> {
   for (;;) {
     const now = Date.now();
     while (sent.length && now - sent[0] > 60_000) sent.shift();
+    const upstreamWait = upstream.remaining !== null && upstream.remaining <= MAX_CONCURRENT && upstream.resetAt > now ? upstream.resetAt - now : 0;
+    if (upstreamWait > 0) {
+      if (upstreamWait > 20_000) throw new UwError(429, "Unusual Whales per-minute limit reached — waiting for it to reset. Slow down auto-refresh.");
+      await new Promise((r) => setTimeout(r, upstreamWait + 5));
+      upstream.remaining = null;
+      continue;
+    }
     if (active < MAX_CONCURRENT && sent.length < maxPerMinute()) {
       active++;
       sent.push(now);
@@ -95,9 +116,9 @@ export function ttlFor(path: string): number {
 
 const inflight = new Map<string, Promise<unknown>>();
 
-export type UwRequest = { method?: string; path: string; query?: string; body?: unknown; fresh?: boolean };
+export type UwRequest = { method?: string; path: string; template?: string; query?: string; body?: unknown; fresh?: boolean };
 
-export async function uwFetch<T = unknown>({ method = "GET", path, query = "", body, fresh }: UwRequest): Promise<T> {
+export async function uwFetch<T = unknown>({ method = "GET", path, template, query = "", body, fresh }: UwRequest): Promise<T> {
   const { key } = getKey();
   if (!key) throw new UwError(503, "Unusual Whales API key not configured. Add it in WHALES → Settings or set UW_API_KEY.");
   const qs = query.replace(/^\?/, "");
@@ -137,6 +158,12 @@ export async function uwFetch<T = unknown>({ method = "GET", path, query = "", b
       res.headers.forEach((v, k) => {
         if (k.startsWith("x-uw-") || k.startsWith("x-ratelimit")) usage.limits[k] = v;
       });
+      const remaining = Number(res.headers.get("x-uw-req-per-minute-remaining"));
+      const reset = Number(res.headers.get("x-uw-req-per-minute-reset"));
+      if (Number.isFinite(remaining) && res.headers.has("x-uw-req-per-minute-remaining")) {
+        upstream.remaining = remaining;
+        upstream.resetAt = Date.now() + (Number.isFinite(reset) && reset > 0 ? (reset > 1000 ? reset : reset * 1000) : 60_000);
+      }
       const text = await res.text();
       let json: unknown = null;
       try {
@@ -145,9 +172,11 @@ export async function uwFetch<T = unknown>({ method = "GET", path, query = "", b
         json = { raw: text.slice(0, 2000) };
       }
       if (!res.ok) {
-        const j = (json && typeof json === "object" ? json : {}) as { message?: unknown; error?: unknown };
-        const msg = String(j.message ?? j.error ?? "") || `HTTP ${res.status}`;
-        throw new UwError(res.status, msg, json);
+        const j = (json && typeof json === "object" ? json : {}) as { message?: unknown; error?: unknown; msg?: unknown };
+        const msg = String(j.message ?? j.msg ?? j.error ?? "") || `HTTP ${res.status}`;
+        const plan = isPlanRestriction(res.status, msg);
+        if (plan && template) restricted.add(`${method.toUpperCase()} ${template}`);
+        throw new UwError(plan ? 403 : res.status, msg, json, plan);
       }
       if (isGet) cacheStore(cacheKey, json, ttlFor(path));
       return json as T;
@@ -177,6 +206,8 @@ export async function uwFetch<T = unknown>({ method = "GET", path, query = "", b
 export function _resetUwState(): void {
   sent.length = 0;
   active = 0;
+  upstream.remaining = null;
+  restricted.clear();
   waiting.length = 0;
   inflight.clear();
   Object.assign(usage, { requests: 0, errors: 0, cacheHits: 0, lastStatus: null, lastError: null, lastLatencyMs: null, limits: {} });

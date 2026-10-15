@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPath, catalog, matchEndpoint, toRows } from "./catalog.js";
+import { buildPath, catalog, latestRow, matchEndpoint, toRows } from "./catalog.js";
 
 describe("uw catalog", () => {
   it("covers the full Unusual Whales API", () => {
@@ -65,5 +65,14 @@ describe("toRows nested lists", () => {
   it("keeps objects with several lists intact", () => {
     const body = { data: { a: [{ x: 1 }], b: [{ y: 2 }] } };
     expect(toRows(body)).toEqual([body.data]);
+  });
+});
+
+describe("latestRow", () => {
+  it("picks the newest row whether the series is ascending or descending", () => {
+    expect(latestRow([{ timestamp: "2026-10-15T19:59:00Z", v: 2 }, { timestamp: "2026-10-15T13:30:00Z", v: 1 }])!.v).toBe(2);
+    expect(latestRow([{ market_date: "2021-06-15", v: 1 }, { market_date: "2026-09-30", v: 2 }])!.v).toBe(2);
+    expect(latestRow([{ a: 1 }, { a: 2 }])!.a).toBe(2);
+    expect(latestRow([])).toBeUndefined();
   });
 });

@@ -41,12 +41,18 @@ the active symbol (type it in the header or use ⌘K). Clicking a ticker in any 
 
 1. Get your token at unusualwhales.com/dashboard/api (it's a UUID).
 2. Either paste it into **WHALES → Settings** (stored only in the local SQLite DB under `data/`, which is git‑ignored), or put
-   `UW_API_KEY=…` in a `.env` file at the repo root (see `.env.example`).
+   `UW_API_KEY=…` (or `UNUSUAL_WHALES_API_KEY=…`) in a `.env` file at the repo root (see `.env.example`).
+
+**Plan tiers.** Some endpoints need UW's Advanced or Enterprise tier (company profile, movers, futures, forex, economy, IPO calendar,
+private markets, politician portfolios…). The app recognizes UW's "missing access" replies. Those panels show 🔒 *Not included in
+your plan* and stop polling, and the API Explorer marks the endpoints with 🔒. Where a basic‑plan substitute exists, it's used instead:
+- **Value header:** TTM P/E, EPS and EBITDA are computed from quarterly reports, and the analyst target is the 90‑day average of rating changes.
+- **Top movers:** built from the stock screener.
 
 The key never reaches the browser. All requests go through the local server, which:
 
 - only forwards paths that exist in the endpoint catalog;
-- keeps your requests under your plan's per‑minute limit (configurable with `UW_MAX_RPM`) and caches identical live requests for about 10 seconds;
+- paces requests using the per‑minute budget UW reports in its response headers, and caches identical live requests for about 10 seconds;
 - falls back to the last good response on 429/5xx;
 - refuses requests from other websites' origins, so they can't spend your quota.
 
@@ -63,6 +69,8 @@ npm run dev:mock      # mock Unusual Whales API on :4100 + terminal on :3000
 npm test              # server (proxy hits all 221 GET endpoints against the mock) + web unit tests
 npm run dev:mock      # then, in another terminal:
 npx playwright install chromium && npm run test:e2e   # headless browser walk-through of every section
+# or against your real key (plan-restricted endpoints are counted, not failed):
+#   npm run dev   then   E2E_REAL=1 npm run test:e2e
 ```
 
 The endpoint catalog is generated from UW's OpenAPI spec. If UW adds endpoints, refresh it with `npm run gen:uw`.

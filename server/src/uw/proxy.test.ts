@@ -179,10 +179,26 @@ describe("uw proxy", () => {
     client.saveKey("deadbeef-0000-4000-8000-000000000000");
     let res = await get("/api/uw/proxy/api/stock/SPY/gex-levels");
     expect(res.status).toBe(403);
-    expect((await res.json()).error).toMatch(/plan/);
+    const j = await res.json();
+    expect(j.error).toMatch(/tier/);
+    expect(j.planRestricted).toBe(true);
     client.saveKey("1a1a1a1a-0000-4000-8000-000000000000");
     res = await get("/api/uw/proxy/api/stock/QQQ/gex-levels");
     expect(res.status).toBe(429);
+  });
+
+  it("treats UW's 422 'Missing access' as a plan restriction and reports it in status", async () => {
+    client.saveKey("cccccccc-0000-4000-8000-000000000000");
+    const res = await get("/api/uw/proxy/api/companies/AAPL/profile");
+    expect(res.status).toBe(403);
+    const j = await res.json();
+    expect(j.planRestricted).toBe(true);
+    expect(j.error).toMatch(/Missing access/);
+    const s = await (await get("/api/uw/status")).json();
+    expect(s.restricted).toContain("GET /api/companies/{ticker}/profile");
+    expect((await get("/api/uw/proxy/api/stock/AAPL/info")).status).toBe(200);
+    client.saveKey(GOOD_KEY);
+    expect((await (await get("/api/uw/status")).json()).restricted).toEqual([]);
   });
 
   it("caches GETs and de-duplicates concurrent identical requests", async () => {
@@ -198,6 +214,14 @@ describe("uw proxy", () => {
     await get("/api/uw/proxy/api/market/oi-change?_fresh=1");
     const s = await (await get("/api/uw/status")).json();
     expect(s.usage.limits["x-uw-req-per-minute-remaining"]).toBeDefined();
+  });
+
+  it("pauses when Unusual Whales reports the per-minute budget is spent", async () => {
+    client.saveKey("2b2b2b2b-0000-4000-8000-000000000000");
+    expect((await get("/api/uw/proxy/api/stock/AAPL/iv-rank")).status).toBe(200);
+    const t0 = Date.now();
+    expect((await get("/api/uw/proxy/api/stock/MSFT/iv-rank")).status).toBe(200);
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(1000);
   });
 
   it("enforces the local per-minute budget instead of hammering UW", async () => {

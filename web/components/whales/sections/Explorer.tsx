@@ -13,7 +13,17 @@ import { ErrorNote, Panel, Segmented } from "../ui";
 const METHOD_CLS: Record<string, string> = { GET: "up", POST: "amber", PUT: "text-[#40c4ff]", DELETE: "down", PATCH: "text-[#40c4ff]" };
 const key = (e: UwEndpoint) => `${e.method} ${e.path}`;
 
-function EndpointList({ endpoints, selected, onSelect }: { endpoints: UwEndpoint[]; selected: string | null; onSelect: (e: UwEndpoint) => void }) {
+function EndpointList({
+  endpoints,
+  selected,
+  onSelect,
+  restricted,
+}: {
+  endpoints: UwEndpoint[];
+  selected: string | null;
+  onSelect: (e: UwEndpoint) => void;
+  restricted: Set<string>;
+}) {
   const [q, setQ] = useState("");
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const filtered = useMemo(() => {
@@ -44,7 +54,8 @@ function EndpointList({ endpoints, selected, onSelect }: { endpoints: UwEndpoint
                   title={e.path}
                 >
                   <span className={`w-9 shrink-0 text-[9px] ${METHOD_CLS[e.method]}`}>{e.method}</span>
-                  <span className={`truncate ${e.deprecated ? "line-through dim" : ""}`}>{e.summary}</span>
+                  <span className={`truncate ${e.deprecated ? "line-through dim" : ""} ${restricted.has(key(e)) ? "dim" : ""}`}>{e.summary}</span>
+                  {restricted.has(key(e)) && <span className="ml-auto dim" title="Not included in your Unusual Whales plan">🔒</span>}
                 </button>
               ))}
           </div>
@@ -196,7 +207,7 @@ export default function Explorer() {
     <div className="grid grid-cols-[300px_1fr] gap-1 p-1 h-full min-h-0">
       <Panel title={`All endpoints (${endpoints.length})`} bodyClass="!overflow-hidden">
         <ErrorNote error={error} />
-        <EndpointList endpoints={endpoints} selected={ep ? key(ep) : null} onSelect={(e) => setSelected(key(e))} />
+        <EndpointList endpoints={endpoints} selected={ep ? key(ep) : null} onSelect={(e) => setSelected(key(e))} restricted={new Set(status?.restricted ?? [])} />
       </Panel>
       <div className="min-h-0 overflow-auto">
         {!status?.configured && <div className="p-2 amber text-[11px]">No API key configured yet — add one in Settings to run requests.</div>}
