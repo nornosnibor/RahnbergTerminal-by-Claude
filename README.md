@@ -99,6 +99,7 @@ No signup. No credit card. No rate‑limited demo tier. Clone it, `npm install`,
 - ⛓️ **Options chain** — calls and puts side‑by‑side with strike, bid/ask, volume, open interest, and ITM highlighting
 - 🪙 **Crypto board** — top assets with 7‑day sparklines, BTC/ETH dominance, and full OHLCV charting for any listed coin
 - 🏦 **Macro dashboard** — live US Treasury yield curve, VIX, and major index/commodity proxies
+- 🛢️ **Oil & Rates** — Brent, WTI, 2Y/10Y/30Y Treasury yields and the 2s10s spread, each with today / 1-week / 1-month trend charts (on the main page by default)
 - 💼 **Portfolio tracker** — log buy/sell transactions, track average cost, realized & unrealized P&L (persisted in SQLite)
 - 🤖 **AI assistant** (optional) — ask questions about the symbol you're looking at, powered by Claude, fully context‑aware of the terminal's current data
 - ⚡ **Near real‑time updates** — quotes and indexes refresh every second with a subtle flash on change, so you always know what just moved
@@ -156,6 +157,7 @@ No paid API, no keys, and no single point of failure — every endpoint has a fa
 | Crypto quotes & board | CoinGecko | Binance public API |
 | Crypto candles | Binance public API (klines) | — |
 | Macro (Treasury yields, VIX) | FRED (Federal Reserve) | — |
+| Oil & Rates (Brent, WTI, yields) | CNBC quote & chart feeds | TradingView (quotes) → FRED (daily history) |
 
 > ⚠️ These are public endpoints, not officially licensed data feeds — treat prices as delayed/indicative, not execution‑grade. See [`server/src/providers/`](server/src/providers) — each provider is a small, isolated module, so swapping or adding a data source is a 30‑minute job.
 
@@ -213,14 +215,14 @@ Portfolio data persists in the `terminal-data` volume (SQLite, WAL mode).
 ```
 ├── server/                  # Express + TypeScript API
 │   └── src/
-│       ├── providers/       # nasdaq, tradingview, yahoo, stooq, fred, coingecko, binance, news
+│       ├── providers/       # nasdaq, tradingview, yahoo, stooq, fred, cnbc, coingecko, binance, news
 │       ├── routes/          # market, portfolio, ai, uw (Unusual Whales proxy + scans)
 │       ├── uw/              # endpoint catalog (generated), client, mock UW server
 │       ├── cache.ts         # TTL cache with stale-while-revalidate fallback
 │       └── db.ts            # SQLite (better-sqlite3, WAL)
 └── web/                      # Next.js 15 + React 19 + Tailwind 4
     ├── components/           # TopBar, Sidebar, Workspace, CommandPalette
-    ├── components/widgets/   # Chart, Quote, Watchlist, News, Screener, Heatmap, Crypto, Options, Macro, Portfolio, AI
+    ├── components/widgets/   # Chart, Quote, Watchlist, News, Screener, Heatmap, Crypto, Options, Macro, Oil & Rates, Portfolio, AI
     ├── components/whales/    # WHALES page: sections, DataTable, charts, ParamForm
     ├── lib/                  # API client, technical indicators
     └── store/                # Zustand store (workspace layout, persisted)

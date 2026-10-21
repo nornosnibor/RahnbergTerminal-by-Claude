@@ -103,9 +103,17 @@ describe("uw key management", () => {
 
   it("returns 503 with guidance when no key is configured", async () => {
     client.saveKey(null);
-    const res = await get("/api/uw/proxy/api/market/market-tide");
-    expect(res.status).toBe(503);
-    expect((await res.json()).error).toMatch(/API key not configured/);
+    // A real key in the developer's .env must not leak into this case.
+    const saved = { UW_API_KEY: process.env.UW_API_KEY, UNUSUAL_WHALES_API_KEY: process.env.UNUSUAL_WHALES_API_KEY };
+    delete process.env.UW_API_KEY;
+    delete process.env.UNUSUAL_WHALES_API_KEY;
+    try {
+      const res = await get("/api/uw/proxy/api/market/market-tide");
+      expect(res.status).toBe(503);
+      expect((await res.json()).error).toMatch(/API key not configured/);
+    } finally {
+      for (const [k, v] of Object.entries(saved)) if (v !== undefined) process.env[k] = v;
+    }
   });
 
   it("falls back to UW_API_KEY from the environment", async () => {

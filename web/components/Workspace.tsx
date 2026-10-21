@@ -18,6 +18,7 @@ import AiWidget from "./widgets/AiWidget";
 import TimeSalesWidget from "./widgets/TimeSalesWidget";
 import TvWidget from "./widgets/TvWidget";
 import RecapWidget from "./widgets/RecapWidget";
+import OilRatesWidget from "./widgets/OilRatesWidget";
 
 const Grid = WidthProvider(GridLayout);
 
@@ -37,6 +38,7 @@ function WidgetBody({ widget }: { widget: WidgetInstance }) {
     case "tape": return <TimeSalesWidget widget={widget} />;
     case "tv": return <TvWidget />;
     case "recap": return <RecapWidget />;
+    case "oilrates": return <OilRatesWidget />;
   }
 }
 
@@ -44,7 +46,7 @@ const TITLES: Record<string, string> = {
   quote: "Quote", chart: "Chart", watchlist: "Watchlist", news: "News",
   heatmap: "Heatmap", screener: "Screener", crypto: "Crypto",
   macro: "Macro / Indexes", options: "Option Chain", portfolio: "Portfolio", ai: "AI Assistant",
-  tape: "Time & Sales", tv: "Live TV", recap: "Market Recap",
+  tape: "Time & Sales", tv: "Live TV", recap: "Market Recap", oilrates: "Oil & Rates",
 };
 
 export default function Workspace() {

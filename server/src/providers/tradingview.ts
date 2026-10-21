@@ -122,6 +122,30 @@ export async function marketScan(limit = 1500): Promise<MarketRow[]> {
     .filter((r) => r.symbol && r.exchange !== "OTC");
 }
 
+export type TickerQuote = { last: number; change: number | null; open: number | null; high: number | null; low: number | null };
+
+/**
+ * Last price and day change for fully-qualified tickers on any market
+ * (e.g. "ICEEUR:BRN1!", "TVC:US10Y"). Keyed by the ticker as passed in.
+ */
+export async function quoteTickers(tickers: string[]): Promise<Map<string, TickerQuote>> {
+  const res = await fetch("https://scanner.tradingview.com/global/scan", {
+    method: "POST",
+    headers: HEADERS,
+    body: JSON.stringify({ symbols: { tickers }, columns: ["close", "change_abs", "open", "high", "low"] }),
+  });
+  if (!res.ok) throw new Error(`tradingview scan ${res.status}`);
+  const json = await res.json();
+  const out = new Map<string, TickerQuote>();
+  for (const row of (json?.data ?? []) as Array<{ s: string; d: (number | null)[] }>) {
+    const [close, change, open, high, low] = row.d;
+    if (close === null || close === undefined) continue;
+    out.set(row.s, { last: close, change: change ?? null, open: open ?? null, high: high ?? null, low: low ?? null });
+  }
+  if (out.size === 0) throw new Error("tradingview: no quotes returned");
+  return out;
+}
+
 export type SearchResult = { symbol: string; name: string; exchange: string; type: string };
 
 // Non-US exchanges we can serve via Yahoo Finance (our international fallback —

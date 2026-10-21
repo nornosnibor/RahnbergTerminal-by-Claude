@@ -17,7 +17,8 @@ export type WidgetType =
   | "ai"
   | "tape"
   | "tv"
-  | "recap";
+  | "recap"
+  | "oilrates";
 
 export type WidgetInstance = {
   id: string;
@@ -56,14 +57,16 @@ const DEFAULT_WIDGETS: WidgetInstance[] = [
   { id: "w-watchlist", type: "watchlist", linked: false },
   { id: "w-news", type: "news", linked: true },
   { id: "w-macro", type: "macro", linked: false },
+  { id: "w-oilrates", type: "oilrates", linked: false },
 ];
 
 const DEFAULT_LAYOUT: LayoutItem[] = [
   { i: "w-chart", x: 0, y: 0, w: 7, h: 12 },
   { i: "w-quote", x: 7, y: 0, w: 5, h: 6 },
   { i: "w-watchlist", x: 7, y: 6, w: 5, h: 6 },
-  { i: "w-news", x: 0, y: 12, w: 7, h: 7 },
-  { i: "w-macro", x: 7, y: 12, w: 5, h: 7 },
+  { i: "w-oilrates", x: 0, y: 12, w: 12, h: 12 },
+  { i: "w-news", x: 0, y: 24, w: 7, h: 7 },
+  { i: "w-macro", x: 7, y: 24, w: 5, h: 7 },
 ];
 
 const SIZE_BY_TYPE: Record<WidgetType, { w: number; h: number }> = {
@@ -81,7 +84,29 @@ const SIZE_BY_TYPE: Record<WidgetType, { w: number; h: number }> = {
   tape: { w: 4, h: 10 },
   tv: { w: 6, h: 11 },
   recap: { w: 5, h: 12 },
+  oilrates: { w: 12, h: 12 },
 };
+
+type PersistedWorkspace = { widgets?: WidgetInstance[]; layout?: LayoutItem[] };
+
+/**
+ * Bring a saved workspace up to date. v1 added the Oil & Rates widget to the
+ * main page: it goes in under the chart and everything from there down moves
+ * below it.
+ */
+export function migrateWorkspace(persisted: unknown, version: number): PersistedWorkspace {
+  const state = (persisted ?? {}) as PersistedWorkspace;
+  if (version < 1 && state.widgets && state.layout && !state.widgets.some((w) => w.type === "oilrates")) {
+    const at = 12;
+    const size = SIZE_BY_TYPE.oilrates;
+    state.widgets = [...state.widgets, { id: "w-oilrates", type: "oilrates", linked: false }];
+    state.layout = [
+      ...state.layout.map((l) => (l.y >= at ? { ...l, y: l.y + size.h } : l)),
+      { i: "w-oilrates", x: 0, y: at, ...size },
+    ];
+  }
+  return state;
+}
 
 export const useTerminal = create<TerminalState>()(
   persist(
@@ -126,7 +151,7 @@ export const useTerminal = create<TerminalState>()(
       removeFromWatchlist: (s) => set((st) => ({ watchlist: st.watchlist.filter((x) => x !== s) })),
       resetWorkspace: () => set({ widgets: DEFAULT_WIDGETS, layout: DEFAULT_LAYOUT }),
     }),
-    { name: "openterminal-workspace" }
+    { name: "openterminal-workspace", version: 1, migrate: (persisted, version) => migrateWorkspace(persisted, version) as TerminalState }
   )
 );
 

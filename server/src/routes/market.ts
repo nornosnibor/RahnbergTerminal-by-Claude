@@ -9,6 +9,7 @@ import * as tradingview from "../providers/tradingview.js";
 import * as coingecko from "../providers/coingecko.js";
 import * as binance from "../providers/binance.js";
 import * as news from "../providers/news.js";
+import { oilRates } from "../oilRates.js";
 
 export const marketRouter = Router();
 
@@ -339,6 +340,16 @@ marketRouter.get("/macro", async (req, res) => {
 
     if (yields.length === 0 && indexes.length === 0) throw new Error("no macro data from any provider");
     res.json({ yields, vix: vix?.value ?? null, indexes });
+  } catch (err) {
+    fail(req, res, err);
+  }
+});
+
+// ---- oil & Treasury yields: last value + today / week / month trends ----
+
+marketRouter.get("/oil-rates", async (req, res) => {
+  try {
+    res.json(await cached("oilrates", 10_000, oilRates));
   } catch (err) {
     fail(req, res, err);
   }
